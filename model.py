@@ -152,15 +152,23 @@ class RankMixer(nn.Module):
             self.blocks = nn.ModuleList([RankMixerBlock(head=head, emb_size=Config.token_dim, expert=expert, preln=preln) for _ in range(block_num)])
         else:
             self.blocks = nn.ModuleList([RankMixerBlock(head=head, emb_size=Config.token_dim, preln=preln) for _ in range(block_num)])
-        self.mlp = MLP(Config.token_dim * head, [128, 32, 8], 1)
-        # 8 个语义 token 的单层投影（对齐论文的 tokenization）
+        self.mlp = MLP(16 * Config.token_dim, [256, 64, 16], 1)
+        # 16 个语义 token 的单层投影（对齐论文的 tokenization）
         self.token_proj_user_id = nn.Linear(embedding_dim, Config.token_dim)           # user_id
-        self.token_proj_user_profile = nn.Linear(embedding_dim * 3, Config.token_dim)  # age + gender + occupation
-        self.token_proj_item_id = nn.Linear(embedding_dim, Config.token_dim)           # adgroup_id
-        self.token_proj_item_meta = nn.Linear(embedding_dim * 4, Config.token_dim)     # cate + brand + campaign + customer
+        self.token_proj_age = nn.Linear(embedding_dim, Config.token_dim)               # age_level
+        self.token_proj_gender = nn.Linear(embedding_dim, Config.token_dim)            # gender
+        self.token_proj_occupation = nn.Linear(embedding_dim, Config.token_dim)        # occupation
+        self.token_proj_adgroup_id = nn.Linear(embedding_dim, Config.token_dim)        # adgroup_id
+        self.token_proj_cate_id = nn.Linear(embedding_dim, Config.token_dim)           # cate_id
+        self.token_proj_brand = nn.Linear(embedding_dim, Config.token_dim)             # brand
+        self.token_proj_campaign_id = nn.Linear(embedding_dim, Config.token_dim)       # campaign_id
+        self.token_proj_customer_id = nn.Linear(embedding_dim, Config.token_dim)       # customer_id
         self.token_proj_price = nn.Linear(embedding_dim, Config.token_dim)             # price
-        self.token_proj_context = nn.Linear(embedding_dim * 2, Config.token_dim)       # cms_segid + cms_group_id
-        self.token_proj_behavior = nn.Linear(embedding_dim * 3, Config.token_dim)      # pvalue + shopping + new_user
+        self.token_proj_cms_segid = nn.Linear(embedding_dim, Config.token_dim)         # cms_segid
+        self.token_proj_cms_group_id = nn.Linear(embedding_dim, Config.token_dim)      # cms_group_id
+        self.token_proj_pvalue = nn.Linear(embedding_dim, Config.token_dim)            # pvalue_level
+        self.token_proj_shopping = nn.Linear(embedding_dim, Config.token_dim)          # shopping_level
+        self.token_proj_new_user_class = nn.Linear(embedding_dim, Config.token_dim)    # new_user_class_level
         self.token_proj_history = nn.Linear(embedding_dim, Config.token_dim)           # his
         self.norm = nn.LayerNorm(Config.token_dim)
         
@@ -185,18 +193,28 @@ class RankMixer(nn.Module):
         his_emb = his_emb.sum(-2) / mask.sum(-1, keepdim=True).clamp(min=1e-8)  # [B, D]
         price_emb = self.price_embedding(price.unsqueeze(-1)) # [B, D]
 
-        # 2. Semantic Tokenization: 8 个语义组 → 单层 projection → 8 个 token
+        # 2. Semantic Tokenization: 16 个语义组 → 单层 projection → 16 个 token
         tok_user_id = self.token_proj_user_id(user_emb)                              # [B, 128]
-        tok_user_profile = self.token_proj_user_profile(torch.cat([age_emb, gender_emb, occupation_emb], dim=-1))  # [B, 128]
-        tok_item_id = self.token_proj_item_id(adgroup_emb)                           # [B, 128]
-        tok_item_meta = self.token_proj_item_meta(torch.cat([cate_emb, brand_emb, campaign_emb, customer_emb], dim=-1))  # [B, 128]
+        tok_age = self.token_proj_age(age_emb)                                       # [B, 128]
+        tok_gender = self.token_proj_gender(gender_emb)                              # [B, 128]
+        tok_occupation = self.token_proj_occupation(occupation_emb)                  # [B, 128]
+        tok_adgroup_id = self.token_proj_adgroup_id(adgroup_emb)                     # [B, 128]
+        tok_cate_id = self.token_proj_cate_id(cate_emb)                              # [B, 128]
+        tok_brand = self.token_proj_brand(brand_emb)                                 # [B, 128]
+        tok_campaign_id = self.token_proj_campaign_id(campaign_emb)                  # [B, 128]
+        tok_customer_id = self.token_proj_customer_id(customer_emb)                  # [B, 128]
         tok_price = self.token_proj_price(price_emb)                                 # [B, 128]
-        tok_context = self.token_proj_context(torch.cat([cms_segid_emb, cms_group_id_emb], dim=-1))  # [B, 128]
-        tok_behavior = self.token_proj_behavior(torch.cat([pvalue_emb, shopping_emb, new_user_class_emb], dim=-1))  # [B, 128]
+        tok_cms_segid = self.token_proj_cms_segid(cms_segid_emb)                     # [B, 128]
+        tok_cms_group_id = self.token_proj_cms_group_id(cms_group_id_emb)            # [B, 128]
+        tok_pvalue = self.token_proj_pvalue(pvalue_emb)                              # [B, 128]
+        tok_shopping = self.token_proj_shopping(shopping_emb)                        # [B, 128]
+        tok_new_user_class = self.token_proj_new_user_class(new_user_class_emb)      # [B, 128]
         tok_history = self.token_proj_history(his_emb)                               # [B, 128]
 
-        token = torch.stack([tok_user_id, tok_user_profile, tok_item_id, tok_item_meta,
-                             tok_price, tok_context, tok_behavior, tok_history], dim=1)  # [B, 8, 128]
+        token = torch.stack([tok_user_id, tok_age, tok_gender, tok_occupation,
+                             tok_adgroup_id, tok_cate_id, tok_brand, tok_campaign_id,
+                             tok_customer_id, tok_price, tok_cms_segid, tok_cms_group_id,
+                             tok_pvalue, tok_shopping, tok_new_user_class, tok_history], dim=1)  # [B, 16, 128]
         loss = 0.0
         num_active_experts_total = 0
         num_experts_total = 0
@@ -205,7 +223,7 @@ class RankMixer(nn.Module):
             loss += loss_
             num_active_experts_total += num_active_experts
             num_experts_total += num_experts
-        token = self.norm(token) # [B, 8, 128] 
+        token = self.norm(token) # [B, 16, 128]
         out = (self.mlp(torch.flatten(token, start_dim=1))).squeeze(-1) # [batch_size,]
         if self.training:
             return out, loss

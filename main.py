@@ -31,7 +31,7 @@ if __name__ == "__main__":
     print("数据创建完成")
     device = Config.device
     model = RankMixer(num_user_id, num_adgroup_id, num_cate_id, num_customer_id, num_brand, num_campaign_id, 
-                      num_cms_segid, num_cms_group_id, embedding_dim=Config.embedding_dim, head=8, expert=8, block_num=8, preln=True).to(device)
+                      num_cms_segid, num_cms_group_id, embedding_dim=Config.embedding_dim, head=16, expert=8, block_num=8, preln=True).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=Config.learning_rate, weight_decay=Config.weight_decay)
     criterion = torch.nn.BCEWithLogitsLoss()
     train(model, train_loader, test_loader, optimizer, criterion, device,
