@@ -42,7 +42,8 @@ def test(model, test_loader, device):
     return roc_auc_score(np.array(all_labels), np.array(all_preds)), num_active_experts_total, num_experts_total
 
 
-def train(model, train_loader, test_loader, optimizer, criterion, device):
+def train(model, train_loader, test_loader, optimizer, criterion, device,
+          train_log_file='train_log.txt', metric_log_file='metric_log.txt'):
     """训练
 
     Args:
@@ -52,6 +53,8 @@ def train(model, train_loader, test_loader, optimizer, criterion, device):
         optimizer: 优化器
         criterion: 损失函数
         device: 设备
+        train_log_file: 训练日志文件路径
+        metric_log_file: 指标日志文件路径
     """
     print("开始训练")
     best_auc = 0
@@ -73,10 +76,10 @@ def train(model, train_loader, test_loader, optimizer, criterion, device):
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        with open('train_log.txt', 'a') as f:
+        with open(train_log_file, 'a') as f:
             f.write(f'Epoch {epoch+1}/{Config.epochs}, Loss: {total_loss/len(train_loader)}\n')
         auc, num_active_experts_total, num_experts_total = test(model, test_loader, device)
-        with open('metric_log.txt', 'a') as f:
+        with open(metric_log_file, 'a') as f:
             f.write(f'Epoch {epoch+1}/{Config.epochs}, AUC: {auc}, '
                     f'Active Experts: {num_active_experts_total}, '
                     f'Total Experts: {num_experts_total}, '
