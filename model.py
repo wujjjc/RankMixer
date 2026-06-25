@@ -151,7 +151,7 @@ class RankMixer(nn.Module):
         if MoE:
             self.blocks = nn.ModuleList([RankMixerBlock(head=head, emb_size=Config.token_dim, expert=expert, preln=preln) for _ in range(block_num)])
         else:
-            self.blocks = nn.ModuleList([RankMixerBlock(head=head, emb_size=Config.token_dim, preln=preln) for _ in range(block_num)])
+            self.blocks = nn.ModuleList([sRankMixerBlock(head=head, emb_size=Config.token_dim, preln=preln) for _ in range(block_num)])
         self.mlp = MLP(Config.token_dim * head, [128, 32, 8], 1)
         # 8 个语义 token 的单层投影（对齐论文的 tokenization）
         self.token_proj_user_id = nn.Linear(embedding_dim, Config.token_dim)           # user_id
