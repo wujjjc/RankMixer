@@ -35,7 +35,9 @@ class RankMixerBlock(nn.Module):
         self.norm2 = nn.LayerNorm(emb_size)
         self.route = nn.Parameter(torch.empty(head, emb_size, expert))
         self.w1 = nn.Parameter(torch.empty(head, expert, emb_size, 4 * emb_size))
+        self.b1 = nn.Parameter(torch.zeros(head, expert, 4 * emb_size))
         self.w2 = nn.Parameter(torch.empty(head, expert, 4 * emb_size, emb_size))
+        self.b2 = nn.Parameter(torch.zeros(head, expert, emb_size))
         self.preln = preln
         nn.init.kaiming_uniform_(self.w1, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.w2, a=math.sqrt(5))
@@ -68,10 +70,10 @@ class RankMixerBlock(nn.Module):
         r_infer = torch.relu(torch.einsum('bhe, hex -> bhx', token, self.route)) # [batch_size, head, expert]
         r = r_train if self.training else r_infer
         if self.preln:
-            token_ = self.gelu(torch.einsum('bhe, hxek -> bhxk', self.norm2(token), self.w1))  # [batch_size, head, expert, 4 * embedding_dim]
+            token_ = self.gelu(torch.einsum('bhe, hxek -> bhxk', self.norm2(token), self.w1) + self.b1)  # [batch_size, head, expert, 4 * embedding_dim]
         else:
-            token_ = self.gelu(torch.einsum('bhe, hxek -> bhxk', token, self.w1))  # [batch_size, head, expert, 4 * embedding_dim]
-        token_ = torch.einsum('bhxk, hxke-> bhxe', token_, self.w2)  # [batch_size, head, expert, embedding_dim]
+            token_ = self.gelu(torch.einsum('bhe, hxek -> bhxk', token, self.w1) + self.b1)  # [batch_size, head, expert, 4 * embedding_dim]
+        token_ = torch.einsum('bhxk, hxke-> bhxe', token_, self.w2) + self.b2  # [batch_size, head, expert, embedding_dim]
         token_ = (token_ * r.unsqueeze(-1)).sum(dim=-2)  # [batch_size, head, embedding_dim]
         if self.preln:
             token = token + token_

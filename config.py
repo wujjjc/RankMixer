@@ -56,4 +56,6 @@ class Config:
     weight_decay: float = 1e-5
     eval_interval: int = 5
     token_dim: int = 128
-    lamb: float = 0.01
+    lamb: float = 1e-8
+    warmup_steps: int = 100000
+    grad_clip_norm: float = 1.0

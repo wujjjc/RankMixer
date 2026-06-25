@@ -2,6 +2,7 @@ import torch
 from config import Config
 import numpy as np
 from sklearn.metrics import roc_auc_score
+from torch.optim.lr_scheduler import LambdaLR
 
 
 def _unpack_batch(batch, device):
@@ -42,6 +43,13 @@ def test(model, test_loader, device):
     return roc_auc_score(np.array(all_labels), np.array(all_preds)), num_active_experts_total, num_experts_total
 
 
+def _get_warmup_lr(step, warmup_steps, base_lr):
+    """线性 warmup：step 从 0 到 warmup_steps 时，lr 从 0 线性增长到 base_lr"""
+    if step >= warmup_steps:
+        return 1.0
+    return step / max(warmup_steps, 1)
+
+
 def train(model, train_loader, test_loader, optimizer, criterion, device,
           train_log_file='train_log.txt', metric_log_file='metric_log.txt'):
     """训练
@@ -56,7 +64,12 @@ def train(model, train_loader, test_loader, optimizer, criterion, device,
         train_log_file: 训练日志文件路径
         metric_log_file: 指标日志文件路径
     """
-    print("开始训练")
+    warmup_steps = Config.warmup_steps
+    grad_clip = Config.grad_clip_norm
+    scheduler = LambdaLR(optimizer, lambda step: _get_warmup_lr(step, warmup_steps, Config.learning_rate))
+    global_step = 0
+
+    print(f"开始训练 (warmup_steps={warmup_steps}, grad_clip={grad_clip})")
     best_auc = 0
     for epoch in range(Config.epochs):
         model.train()
@@ -72,9 +85,12 @@ def train(model, train_loader, test_loader, optimizer, criterion, device,
                 b['history_item_lists'], b['masks'], b['price']
             )
             loss = Config.lamb * loss + criterion(output, b['clks'])
-            # loss = criterion(output, b['clks'])
             loss.backward()
+            if grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             optimizer.step()
+            scheduler.step()
+            global_step += 1
             total_loss += loss.item()
         with open(train_log_file, 'a') as f:
             f.write(f'Epoch {epoch+1}/{Config.epochs}, Loss: {total_loss/len(train_loader)}\n')
