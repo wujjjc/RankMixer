@@ -154,7 +154,7 @@ class RankMixer(nn.Module):
             self.blocks = nn.ModuleList([RankMixerBlock(head=head, emb_size=Config.token_dim, expert=expert, preln=preln) for _ in range(block_num)])
         else:
             self.blocks = nn.ModuleList([sRankMixerBlock(head=head, emb_size=Config.token_dim, preln=preln) for _ in range(block_num)])
-        self.mlp = MLP(16 * Config.token_dim, [256, 64, 16], 1)
+        self.mlp = MLP(Config.token_dim, [64, 16], 1)
         # 16 个语义 token 的单层投影（对齐论文的 tokenization）
         self.token_proj_user_id = nn.Linear(embedding_dim, Config.token_dim)           # user_id
         self.token_proj_age = nn.Linear(embedding_dim, Config.token_dim)               # age_level
@@ -174,7 +174,7 @@ class RankMixer(nn.Module):
         self.token_proj_history = nn.Linear(embedding_dim, Config.token_dim)           # his
         self.norm = nn.LayerNorm(Config.token_dim)
         self.preln = preln
-        self.gate = nn.Parameter(torch.zeros(head, Config.token_dim))  # [head * token_dim]
+        # self.gate = nn.Parameter(torch.zeros(head, Config.token_dim))  # [head * token_dim]
         
     
     def forward(self, user_id, adgroup_id, cate_id, customer_id, brand, campaign_id, cms_segid, cms_group_id, age, gender, pvalue, shopping, occupation, new_user_class, his, mask, price):
@@ -227,9 +227,9 @@ class RankMixer(nn.Module):
             loss += loss_
             num_active_experts_total += num_active_experts
             num_experts_total += num_experts
+        token = token.mean(dim=1) # [B, 128]
         if self.preln:
             token = self.norm(token) # [B, 16, 128]
-        token = token * torch.sigmoid(self.gate).unsqueeze(0) # [B, 16, 128]
         out = (self.mlp(torch.flatten(token, start_dim=1))).squeeze(-1) # [batch_size,]
         if self.training:
             return out, loss
