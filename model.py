@@ -175,7 +175,11 @@ class RankMixer(nn.Module):
         self.norm = nn.LayerNorm(Config.token_dim)
         self.preln = preln
         # self.gate = nn.Parameter(torch.zeros(head, Config.token_dim))  # [head * token_dim]
-        self.gate = nn.Parameter(torch.zeros(head)) # [head]
+        self.attn = nn.Sequential(
+            nn.Linear(Config.token_dim, Config.token_dim // 4),
+            nn.Tanh(),
+            nn.Linear(Config.token_dim // 4, 1))
+        
         
     
     def forward(self, user_id, adgroup_id, cate_id, customer_id, brand, campaign_id, cms_segid, cms_group_id, age, gender, pvalue, shopping, occupation, new_user_class, his, mask, price):
@@ -228,7 +232,7 @@ class RankMixer(nn.Module):
             loss += loss_
             num_active_experts_total += num_active_experts
             num_experts_total += num_experts
-        token = token * torch.sigmoid(self.gate).unsqueeze(0).unsqueeze(-1)  # [B, 16, 128]
+        token = token * torch.softmax(self.attn(token), dim=1)  # [B, 16, 128]
         token = token.mean(dim=1) # [B, 128]
         if self.preln:
             token = self.norm(token) # [B, 16, 128]
