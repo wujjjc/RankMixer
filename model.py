@@ -175,10 +175,9 @@ class RankMixer(nn.Module):
         self.norm = nn.LayerNorm(Config.token_dim)
         self.preln = preln
         # self.gate = nn.Parameter(torch.zeros(head, Config.token_dim))  # [head * token_dim]
-        self.attn = nn.Sequential(
-            nn.Linear(Config.token_dim, Config.token_dim // 4),
-            nn.Tanh(),
-            nn.Linear(Config.token_dim // 4, 1))
+        self.q = nn.Linear(Config.token_dim, Config.token_dim)
+        self.k = nn.Linear(Config.token_dim, Config.token_dim)
+        self.v = nn.Linear(Config.token_dim, Config.token_dim)
         
         
     
@@ -232,11 +231,21 @@ class RankMixer(nn.Module):
             loss += loss_
             num_active_experts_total += num_active_experts
             num_experts_total += num_experts
-        token = token * torch.softmax(self.attn(token), dim=1)  # [B, 16, 128]
-        token = token.mean(dim=1) # [B, 128]
+        token_mean = token.mean(dim=1) # [B, 128]
+        Q = self.q(token_mean).unsqueeze(1) # [B, 1, 128]
+        K = self.k(token) # [B, 16, 128]
+        V = self.v(token) # [B, 16, 128]
+        Q = Q.view(Q.shape[0], Q.shape[1], 4, Q.shape[-1] // 4).permute(0, 2, 1, 3) # [B, 4, 1, 32]
+        K = K.view(K.shape[0], K.shape[1], 4, K.shape[-1] // 4).permute(0, 2, 1, 3) # [B, 4, 16, 32]
+        V = V.view(V.shape[0], V.shape[1], 4, V.shape[-1] // 4).permute(0, 2, 1, 3) # [B, 4, 16, 32]
+        attn_scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(K.size(-1)) # [B, 4, 1, 16]
+        attn_scores = torch.softmax(attn_scores, dim=-1) # [B, 4, 1, 16]
+        attn_output = torch.matmul(attn_scores, V) # [B, 4, 1, 32]
+        attn_output = attn_output.permute(0, 2, 1, 3).view(attn_output.shape[0], attn_output.shape[2], -1) # [B, 1, 128]
+        token = attn_output.squeeze(1) # [B, 128]
         if self.preln:
             token = self.norm(token) # [B, 16, 128]
-        out = (self.mlp(torch.flatten(token, start_dim=1))).squeeze(-1) # [batch_size,]
+        out = (self.mlp(token)).squeeze(-1) # [batch_size,]
         if self.training:
             return out, loss
         return torch.sigmoid(out), num_active_experts_total, num_experts_total
